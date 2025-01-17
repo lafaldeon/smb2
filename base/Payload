@@ -1,0 +1,13 @@
+package ru.sber.samba.smb.base;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+public interface Payload {
+
+    void read(InputStream input);
+
+    int getSize();
+
+    void write(OutputStream output);
+}
