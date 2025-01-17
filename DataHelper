@@ -1,0 +1,180 @@
+package ru.sber.samba.smb.tcpip;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
+
+public class DataHelper {
+
+    public static byte toByte(int value) {
+        return (byte) (value & 0xFF);
+    }
+
+    @SneakyThrows
+    public static int readShort(InputStream input) {
+        return input.read() + (input.read() << 8);
+    }
+
+    @SneakyThrows
+    public static long readInteger(InputStream input) {
+        return ((long) input.read()) + (input.read() << 8) + (input.read() << 16) + (((long) input.read()) << 24);
+    }
+
+    @SneakyThrows
+    public static long readLong(InputStream input) {
+        return ((long) input.read()) + (input.read() << 8) + (input.read() << 16) + (((long) input.read()) << 24) + (((long) input.read()) << 32) + (((long) input.read()) << 40) + (((long) input.read()) << 48) + (((long) input.read()) << 56);
+    }
+
+    @SneakyThrows
+    public static void skip(InputStream input, int bytes) {
+        for (int i = 0; i < bytes; i++) {
+            input.read();
+        }
+    }
+
+    @SneakyThrows
+    public static void writeShort(int value, OutputStream output) {
+        output.write(value & 0xFF);
+        output.write((value >> 8) & 0xFF);
+    }
+
+    @SneakyThrows
+    public static void writeInteger(long value, OutputStream output) {
+        output.write((int) (value & 0xFF));
+        output.write((int) ((value >> 8) & 0xFF));
+        output.write((int) ((value >> 16) & 0xFF));
+        output.write((int) ((value >> 24) & 0xFF));
+    }
+
+    @SneakyThrows
+    public static void writeLong(long value, OutputStream output) {
+        output.write((int) (value & 0xFF));
+        output.write((int) ((value >>> 8) & 0xFF));
+        output.write((int) ((value >>> 16) & 0xFF));
+        output.write((int) ((value >>> 24) & 0xFF));
+        output.write((int) ((value >>> 32) & 0xFF));
+        output.write((int) ((value >>> 40) & 0xFF));
+        output.write((int) ((value >>> 48) & 0xFF));
+        output.write((int) ((value >>> 56) & 0xFF));
+    }
+
+    @SneakyThrows
+    public static void writeLongLe(long value, OutputStream output) {
+        output.write((int) ((value >>> 56) & 0xFF));
+        output.write((int) ((value >>> 48) & 0xFF));
+        output.write((int) ((value >>> 40) & 0xFF));
+        output.write((int) ((value >>> 32) & 0xFF));
+        output.write((int) ((value >>> 24) & 0xFF));
+        output.write((int) ((value >>> 16) & 0xFF));
+        output.write((int) ((value >>> 8) & 0xFF));
+        output.write((int) (value & 0xFF));
+    }
+
+    @SneakyThrows
+    public static void writeZero(OutputStream output, int bytes) {
+        for (int i = 0; i < bytes; i++) {
+            output.write(0);
+        }
+    }
+
+    //	NT time value indicating infinite time
+    public static final long InfiniteTime = 0x7FFFFFFFFFFFFFFFL;
+
+    //	Time conversion constant, difference between NT 64bit base date of 1-1-1601 00:00:00 and
+    //	Java base date of 1-1-1970 00:00:00. In 100ns units.
+    public static final long TIME_CONVERSION = 116444736000000000L;
+
+    public static long toNtTime(Instant jdate) {
+
+        return (jdate.toEpochMilli() * 10000L) + TIME_CONVERSION;
+    }
+
+    public static long toNtTime(long jdate) {
+
+        return (jdate * 10000L) + TIME_CONVERSION;
+    }
+
+    public static Instant toInstant(long ntDate) {
+
+        return Instant.ofEpochMilli((ntDate - TIME_CONVERSION) / 10000L);
+    }
+
+    public static long toMillis(long ntDate) {
+
+        return ntDate == 0L ? 0L : (ntDate - TIME_CONVERSION) / 10000L;
+    }
+
+    public static void wrtieUuid(UUID uuid, OutputStream output) {
+        writeInteger(uuid.getMostSignificantBits() >>> 32, output);
+        writeShort((int) ((uuid.getMostSignificantBits() >>> 16) & 0xFFFF), output);
+        writeShort((int) (uuid.getMostSignificantBits() & 0xFFFF), output);
+        writeLongLe(uuid.getLeastSignificantBits(), output);
+    }
+
+    @SneakyThrows
+    public static byte[] readByteArray(InputStream input, int size) {
+        byte[] content = new byte[size];
+        input.read(content);
+        return content;
+    }
+
+    public static Map<Slice, byte[]> readSlices(InputStream input, long offset, List<Slice> rawSlices) {
+        SortedSet<Slice> slices = rawSlices.stream()
+                .filter(slice -> slice.getSize() > 0)
+                .collect(Collectors.toCollection(TreeSet::new));
+        Map<Slice, byte[]> content = new HashMap<>();
+        for (Slice slice : slices) {
+            long skip = slice.getOffset() - offset;
+            DataHelper.skip(input, (int) skip);
+            offset += skip;
+            content.put(slice, DataHelper.readByteArray(input, slice.getSize()));
+            offset += slice.getSize();
+        }
+        return content;
+    }
+
+    @RequiredArgsConstructor
+    @Getter
+    public static class Slice implements Comparable<Slice> {
+
+        private final long offset;
+        private final int size;
+
+        @Override
+        public int compareTo(Slice slice) {
+            int comparison = Long.compare(this.offset, slice.offset);
+            if (comparison == 0) {
+                comparison = Integer.compare(this.size, slice.size);
+            }
+            return comparison;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (other instanceof Slice slice) {
+                if (this.offset != slice.offset) {
+                    return false;
+                }
+                return this.size == slice.size;
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public int hashCode() {
+            return (int) (103 * offset + 3001 * size);
+        }
+    }
+}
