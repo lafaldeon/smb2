@@ -1,0 +1,6 @@
+package ru.sber.samba.smb.base;
+
+public enum ObjectType {
+    DIRECTORY,
+    REGULAR_FILE
+}
