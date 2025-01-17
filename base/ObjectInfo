@@ -1,0 +1,18 @@
+package ru.sber.samba.smb.base;
+
+import java.time.Instant;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class ObjectInfo {
+
+    private ObjectType type;
+    private String name;
+    private Long size;
+    private Instant creationTime;
+    private Instant modificationTime;
+    private Instant accessTime;
+}
