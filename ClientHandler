@@ -1,0 +1,473 @@
+package ru.sber.samba.smb.tcpip;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigInteger;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import ru.sber.samba.smb.base.ObjectInfo;
+import ru.sber.samba.smb.base.ObjectType;
+import ru.sber.samba.smb.base.Session;
+import ru.sber.samba.smb.base.Tree;
+import ru.sber.samba.smb.base.UserDetails;
+import ru.sber.samba.smb.file.FileAttribute;
+import ru.sber.samba.smb.file.FileIdBothDirectoryInformation;
+import ru.sber.samba.smb.file.FileInformationClass;
+import ru.sber.samba.smb.ntlm.AuthenticateMessage;
+import ru.sber.samba.smb.ntlm.ChallengeMessage;
+import ru.sber.samba.smb.ntlm.NegotiationFlag;
+import ru.sber.samba.smb.ntlm.NegotiationMessage;
+import ru.sber.samba.smb.ntlm.NtlmCommand;
+import ru.sber.samba.smb.ntlm.security.NtlmFunctions;
+import ru.sber.samba.smb.packet.CloseRequest;
+import ru.sber.samba.smb.packet.CloseResponse;
+import ru.sber.samba.smb.packet.CreateRequest;
+import ru.sber.samba.smb.packet.CreateResponse;
+import ru.sber.samba.smb.packet.Dialect;
+import ru.sber.samba.smb.packet.LogoffRequest;
+import ru.sber.samba.smb.packet.LogoffResponse;
+import ru.sber.samba.smb.packet.NegotiationRequest;
+import ru.sber.samba.smb.packet.NegotiationResponse;
+import ru.sber.samba.smb.packet.NtStatus;
+import ru.sber.samba.smb.packet.QueryDirectoryRequest;
+import ru.sber.samba.smb.packet.QueryDirectoryResponse;
+import ru.sber.samba.smb.packet.ReadRequest;
+import ru.sber.samba.smb.packet.ReadResponse;
+import ru.sber.samba.smb.packet.SessionRequest;
+import ru.sber.samba.smb.packet.SessionResponse;
+import ru.sber.samba.smb.packet.SetInfoRequest;
+import ru.sber.samba.smb.packet.SetInfoResponse;
+import ru.sber.samba.smb.packet.SmbHeader;
+import ru.sber.samba.smb.packet.SmbMessage;
+import ru.sber.samba.smb.packet.TreeConnectRequest;
+import ru.sber.samba.smb.packet.TreeConnectResponse;
+import ru.sber.samba.smb.packet.TreeDisconnectRequest;
+import ru.sber.samba.smb.packet.TreeDisconnectResponse;
+import ru.sber.samba.smb.share.ShareUseCase;
+import ru.sber.samba.smb.user.UserUseCase;
+
+import static ru.sber.samba.smb.file.FileAttribute.FILE_ATTRIBUTE_DIRECTORY;
+import static ru.sber.samba.smb.file.FileAttribute.FILE_ATTRIBUTE_NORMAL;
+
+@RequiredArgsConstructor
+@Slf4j
+public class ClientSocketHandler implements Runnable {
+
+    private final UserUseCase userUseCase;
+    private final ShareUseCase shareUseCase;
+    private final SecureRandom random;
+    private final NtlmFunctions ntlmFunctions;
+    private final UUID serverId;
+    private final Instant startTime;
+    private final Tracer tracer;
+
+    private Socket clientSocket;
+    private boolean open = true;
+    private final AtomicLong sequence = new AtomicLong(0L);
+    private final Map<Long, Session> sessionTrees = new HashMap<>();
+
+    @Override
+    public void run() {
+        Span span = tracer.spanBuilder("samba").startSpan();
+        span.setAttribute(AttributeKey.stringKey("host"), ((InetSocketAddress) clientSocket.getRemoteSocketAddress()).getAddress().getHostAddress());
+        span.setAttribute(AttributeKey.longKey("port"), clientSocket.getPort());
+        try (Scope scope = span.makeCurrent()) {
+            while (open) {
+                try {
+                    SmbMessage request = SmbMessage.read(clientSocket.getInputStream());
+                    Instant now = Instant.now();
+                    SmbMessage response = new SmbMessage();
+                    response.getSmbHeader().setCommand(request.getSmbHeader().getCommand());
+                    response.getSmbHeader().setCredit(request.getSmbHeader().getCredit());
+                    response.getSmbHeader().setFlags(EnumSet.of(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR));
+                    response.getSmbHeader().setMessageId(request.getSmbHeader().getMessageId());
+                    response.getSmbHeader().setSessionId(request.getSmbHeader().getSessionId());
+                    response.getSmbHeader().setTreeId(request.getSmbHeader().getTreeId());
+                    switch (request.getSmbHeader().getCommand()) {
+                        case Negotiate -> {
+                            var negotiationRequest = (NegotiationRequest) request.getPayload();
+                            span.addEvent("negotiation request", Attributes.of(
+                                    AttributeKey.stringKey("dialects"), negotiationRequest.getDialects().stream().map(Dialect::name).collect(Collectors.joining(",", "[", "]"))
+                            ));
+                            var negotiationResponse = new NegotiationResponse();
+                            response.setPayload(negotiationResponse);
+                            negotiationResponse.setDialect(Dialect.SMB202);
+                            negotiationResponse.setServerUuid(serverId);
+                            negotiationResponse.setStartTime(startTime);
+                            negotiationResponse.setSystemTime(now);
+                            span.addEvent("negotiation response", Attributes.of(
+                                    AttributeKey.stringKey("dialect"), negotiationResponse.getDialect().name()
+                            ));
+                        }
+                        case SessionSetup -> {
+                            var sessionRequest = (SessionRequest) request.getPayload();
+                            var sessionResponse = new SessionResponse();
+                            response.setPayload(sessionResponse);
+                            switch (sessionRequest.getNtlmHeader().getCommand()) {
+                                case NEGOTIATE -> {
+                                    var negotiationMessage = (NegotiationMessage) sessionRequest.getNtlmPayload();
+                                    span.addEvent("session negotiation request", Attributes.of(
+                                            AttributeKey.stringKey("flags"), negotiationMessage.getFlags().stream().map(NegotiationFlag::name).collect(Collectors.joining(",", "[", "]"))
+                                    ));
+                                    var challengeMessage = new ChallengeMessage();
+                                    sessionResponse.setNtlmPayload(challengeMessage);
+                                    sessionResponse.getNtlmHeader().setCommand(NtlmCommand.CHALLENGE);
+                                    Long sessionId = sequence.incrementAndGet();
+                                    Session session = new Session();
+                                    session.setId(sessionId);
+                                    sessionTrees.put(sessionId, session);
+                                    random.nextBytes(session.getChallenge());
+                                    challengeMessage.setChallenge(session.getChallenge());
+                                    response.getSmbHeader().setSessionId(sessionId);
+                                    response.getSmbHeader().setStatus(NtStatus.STATUS_MORE_PROCESSING_REQUIRED);
+                                    span.addEvent("session challenge response", Attributes.of(
+                                            AttributeKey.longKey("sessionId"), sessionId,
+                                            AttributeKey.stringKey("challenge"), new BigInteger(1, session.getChallenge()).toString(16)
+                                    ));
+                                }
+                                case CHALLENGE -> {
+                                    throw new IllegalStateException("Challenge is a server response ntlm command, not request!");
+                                }
+                                case AUTHENTICATE -> {
+                                    var authenticateMessage = (AuthenticateMessage) sessionRequest.getNtlmPayload();
+                                    span.addEvent("session authentication request", Attributes.of(
+                                            AttributeKey.longKey("sessionId"), request.getSmbHeader().getSessionId(),
+                                            AttributeKey.stringKey("domain"), authenticateMessage.getDomain(),
+                                            AttributeKey.stringKey("username"), authenticateMessage.getUsername()
+                                    ));
+                                    Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                                    if (session != null) {
+                                        Optional<UserDetails> user = userUseCase.findByDomainAndUsername(authenticateMessage.getDomain(), authenticateMessage.getUsername());
+                                        if (user.isPresent()) {
+                                            byte[] clientAuth = Arrays.copyOfRange(authenticateMessage.getAuthentication(), 0, 16);
+                                            byte[] clientChallenge = Arrays.copyOfRange(authenticateMessage.getAuthentication(), 16, authenticateMessage.getAuthentication().length);
+                                            byte[] key = ntlmFunctions.NTOWFv2(String.valueOf(user.get().getPassword()), user.get().getUsername(), user.get().getDomain());
+                                            byte[] computedAuth = ntlmFunctions.hmac_md5(key, session.getChallenge(), clientChallenge);
+                                            if (Arrays.equals(computedAuth, clientAuth)) {
+                                                session.setEstablished(true);
+                                                response.getSmbHeader().setStatus(NtStatus.STATUS_SUCCESS);
+                                                span.addEvent("session authentication response", Attributes.of(
+                                                        AttributeKey.booleanKey("success"), true
+                                                ));
+                                            } else {
+                                                response.getSmbHeader().setStatus(NtStatus.STATUS_ACCESS_DENIED);
+                                                span.addEvent("session authentication response", Attributes.of(
+                                                        AttributeKey.booleanKey("success"), false,
+                                                        AttributeKey.stringKey("error"), "password is incorrect!"
+                                                ));
+                                            }
+                                        } else {
+                                            response.getSmbHeader().setStatus(NtStatus.STATUS_ACCESS_DENIED);
+                                            span.addEvent("session authentication response", Attributes.of(
+                                                    AttributeKey.booleanKey("success"), false,
+                                                    AttributeKey.stringKey("error"), "user is not found!"
+                                            ));
+                                        }
+                                    } else {
+                                        response.getSmbHeader().setStatus(NtStatus.STATUS_ACCESS_DENIED);
+                                        span.addEvent("session authentication response", Attributes.of(
+                                                AttributeKey.booleanKey("success"), false,
+                                                AttributeKey.stringKey("error"), "session is not found!"
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        case TreeConnect -> {
+                            var treeConnectRequest = (TreeConnectRequest) request.getPayload();
+                            span.addEvent("tree connect request", Attributes.of(
+                                    AttributeKey.stringKey("path"), treeConnectRequest.getPath()
+                            ));
+                            var treeConnectResponse = new TreeConnectResponse();
+                            response.setPayload(treeConnectResponse);
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                Long treeId = sequence.incrementAndGet();
+                                Tree tree = new Tree();
+                                tree.setId(treeId);
+                                session.getTrees().put(treeId, tree);
+                                tree.setName(treeConnectRequest.getPath());
+                                response.getSmbHeader().setTreeId(treeId);
+                            } else {
+                                response.getSmbHeader().setStatus(NtStatus.STATUS_ACCESS_DENIED);
+                            }
+                            span.addEvent("tree connect response", Attributes.of(
+                                    AttributeKey.stringKey("status"), response.getSmbHeader().getStatus().name(),
+                                    AttributeKey.longKey("treeId"), response.getSmbHeader().getTreeId()
+                            ));
+                        }
+                        case Create -> {
+                            var createRequest = (CreateRequest) request.getPayload();
+                            span.addEvent("create request", Attributes.of(
+                                    AttributeKey.stringKey("fileAttributes"), createRequest.getAttributes().stream().map(FileAttribute::name).collect(Collectors.joining(",", "[", "]")),
+                                    AttributeKey.stringKey("createAttributes"), createRequest.getCreateFlags().stream().map(CreateRequest.CreateFlag::name).collect(Collectors.joining(",", "[", "]")),
+                                    AttributeKey.stringKey("name"), createRequest.getName(),
+                                    AttributeKey.longKey("contextSize"), (long) createRequest.getContext().length
+                            ));
+                            var createResponse = new CreateResponse();
+                            response.setPayload(createResponse);
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                Tree tree = session.getTrees().get(request.getSmbHeader().getTreeId());
+                                if (tree != null) {
+                                    Long objectId = sequence.incrementAndGet();
+                                    Optional<ObjectInfo> infoOptional = shareUseCase.findObject(tree.getName(), createRequest.getName());
+                                    tree.getFileTree().put(objectId, infoOptional.orElseGet(() -> {
+                                        ObjectInfo objectInfo = new ObjectInfo();
+                                        objectInfo.setName(createRequest.getName());
+                                        return objectInfo;
+                                    }));
+                                    createResponse.setPersistentFileId(objectId);
+                                    createResponse.setVolatileFileId(objectId);
+                                    if (infoOptional.isEmpty()) {
+                                        createResponse.setCreateAction(CreateResponse.CreateAction.FILE_CREATED);
+                                        throw new UnsupportedOperationException("Not yet implemented!");
+                                    } else {
+                                        createResponse.setCreateAction(CreateResponse.CreateAction.FILE_OPENED);
+                                        ObjectInfo info = infoOptional.get();
+                                        if (info.getType() == ObjectType.DIRECTORY) {
+                                            createResponse.setFileAttributes(EnumSet.of(FILE_ATTRIBUTE_DIRECTORY));
+                                        } else if (info.getType() == ObjectType.REGULAR_FILE) {
+                                            createResponse.setFileAttributes(EnumSet.of(FILE_ATTRIBUTE_NORMAL));
+                                        } else {
+                                            throw new UnsupportedOperationException("Not yet implemented object type " + info.getType().name());
+                                        }
+                                    }
+                                } else {
+                                    response.getSmbHeader().setStatus(NtStatus.STATUS_INVALID_PARAMETER);
+                                }
+                            } else {
+                                response.getSmbHeader().setStatus(NtStatus.STATUS_ACCESS_DENIED);
+                            }
+                            span.addEvent("create response", Attributes.of(
+                                    AttributeKey.stringKey("status"), response.getSmbHeader().getStatus().name(),
+                                    AttributeKey.longKey("persistentId"), createResponse.getPersistentFileId(),
+                                    AttributeKey.longKey("volatileId"), createResponse.getVolatileFileId(),
+                                    AttributeKey.stringKey("action"), createResponse.getCreateAction().name(),
+                                    AttributeKey.stringKey("attribute"), createResponse.getFileAttributes().stream().map(FileAttribute::name).collect(Collectors.joining(",", "[", "]"))
+                            ));
+                        }
+                        case QueryDirectory -> {
+                            var queryDirectoryRequest = (QueryDirectoryRequest) request.getPayload();
+                            span.addEvent("query directory request", Attributes.of(
+                                    AttributeKey.longKey("id"), queryDirectoryRequest.getPersistentFileId(),
+                                    AttributeKey.stringKey("flags"), queryDirectoryRequest.getFlags().stream().map(QueryDirectoryRequest.Flag::name).collect(Collectors.joining(",", "[", "]")),
+                                    AttributeKey.stringKey("info class"), queryDirectoryRequest.getFileInformationClass() != null ? queryDirectoryRequest.getFileInformationClass().name() : null
+                            ));
+                            if (queryDirectoryRequest.getFileInformationClass() != FileInformationClass.FileIdBothDirectoryInformation) {
+                                throw new UnsupportedOperationException("Not yet implemented file information class " + (queryDirectoryRequest.getFileInformationClass() != null ? queryDirectoryRequest.getFileInformationClass().name() : null));
+                            }
+                            var queryDirectoryResponse = new QueryDirectoryResponse();
+                            response.setPayload(queryDirectoryResponse);
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                Tree tree = session.getTrees().get(request.getSmbHeader().getTreeId());
+                                if (tree != null) {
+                                    ObjectInfo object = tree.getFileTree().get(queryDirectoryRequest.getPersistentFileId());
+                                    if (object != null) {
+                                        Queue<ObjectInfo> directoryObjectInfos;
+                                        if (queryDirectoryRequest.getFlags().contains(QueryDirectoryRequest.Flag.SMB2_RESTART_SCANS)) {
+                                            directoryObjectInfos = new LinkedList<>(
+                                                    shareUseCase.listDirectory(tree.getName(), object.getName())
+                                            );
+                                            tree.getDirectoryQueries().put(
+                                                    queryDirectoryRequest.getPersistentFileId(),
+                                                    directoryObjectInfos
+                                            );
+                                        } else {
+                                            directoryObjectInfos = tree.getDirectoryQueries().get(queryDirectoryRequest.getPersistentFileId());
+                                            if (directoryObjectInfos == null) {
+                                                throw new IllegalStateException("No query was opened for directory " + object.getName());
+                                            }
+                                        }
+                                        int bufferLength = 0;
+                                        ObjectInfo objectInfo;
+                                        while ((objectInfo = directoryObjectInfos.peek()) != null) {
+                                            FileIdBothDirectoryInformation info = new FileIdBothDirectoryInformation();
+                                            if (objectInfo.getType() == ObjectType.DIRECTORY) {
+                                                info.setFileAttributes(EnumSet.of(FILE_ATTRIBUTE_DIRECTORY));
+                                            } else if (objectInfo.getType() == ObjectType.REGULAR_FILE) {
+                                                info.setFileAttributes(EnumSet.of(FILE_ATTRIBUTE_NORMAL));
+                                            } else {
+                                                throw new UnsupportedOperationException("Not yet implemented!");
+                                            }
+                                            info.setFileName(objectInfo.getName());
+                                            info.setEndOfFileOffset(objectInfo.getSize());
+                                            info.setAllocationSize(objectInfo.getSize());
+                                            info.setCreationTime(objectInfo.getCreationTime());
+                                            info.setChangeTime(objectInfo.getModificationTime());
+                                            info.setLastWriteTime(objectInfo.getModificationTime());
+                                            info.setLastAccessTime(objectInfo.getAccessTime());
+                                            bufferLength += info.getSize();
+                                            if (bufferLength <= queryDirectoryRequest.getOutputBufferLength()) {
+                                                queryDirectoryResponse.getFileInfoList().add(info);
+                                                directoryObjectInfos.remove();
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        if (queryDirectoryResponse.getFileInfoList().isEmpty()) {
+                                            response.getSmbHeader().setStatus(NtStatus.STATUS_NO_MORE_FILES);
+                                        }
+                                    }
+                                }
+                            }
+                            span.addEvent("query directory response", Attributes.of(
+                                    AttributeKey.stringKey("code"), response.getSmbHeader().getStatus().name(),
+                                    AttributeKey.longKey("size"), (long) queryDirectoryResponse.getFileInfoList().size(),
+                                    AttributeKey.stringKey("items"), queryDirectoryResponse.getFileInfoList().stream()
+                                            .map(info -> "\"" + info.getFileName() + ":" + info.getEndOfFileOffset() + "\"")
+                                            .collect(Collectors.joining(",", "[", "]"))
+                            ));
+                        }
+                        case Read -> {
+                            var readRequest = (ReadRequest) request.getPayload();
+                            span.addEvent("read request", Attributes.of(
+                                    AttributeKey.longKey("id"), readRequest.getPersistentFileId(),
+                                    AttributeKey.longKey("offset"), readRequest.getOffset(),
+                                    AttributeKey.longKey("min count"), readRequest.getMinimumCount(),
+                                    AttributeKey.longKey("read length"), readRequest.getReadLength()
+                            ));
+                            var readResponse = new ReadResponse();
+                            response.setPayload(readResponse);
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                Tree tree = session.getTrees().get(request.getSmbHeader().getTreeId());
+                                if (tree != null) {
+                                    ObjectInfo object = tree.getFileTree().get(readRequest.getPersistentFileId());
+                                    if (object != null) {
+                                        if (object.getSize() <= readRequest.getOffset()) {
+                                            response.getSmbHeader().setStatus(NtStatus.STATUS_END_OF_FILE);
+                                        } else {
+                                            InputStream file = shareUseCase.fileInputStream(tree.getName(), object.getName());
+                                            long remaining = object.getSize() - readRequest.getOffset();
+                                            file.skip(readRequest.getOffset());
+                                            long length = Math.min(remaining, readRequest.getReadLength());
+                                            readResponse.setContent(new byte[(int) length]);
+                                            file.read(readResponse.getContent());
+                                            remaining -= length;
+                                            readResponse.setRemaining(remaining);
+                                        }
+                                    } else {
+                                        response.getSmbHeader().setStatus(NtStatus.STATUS_INVALID_PARAMETER);
+                                    }
+                                } else {
+                                    response.getSmbHeader().setStatus(NtStatus.STATUS_INVALID_PARAMETER);
+                                }
+                            } else {
+                                response.getSmbHeader().setStatus(NtStatus.STATUS_ACCESS_DENIED);
+                            }
+                            span.addEvent("read response", Attributes.of(
+                                    AttributeKey.stringKey("code"), response.getSmbHeader().getStatus().name(),
+                                    AttributeKey.longKey("size"), (long) (readResponse.getContent() != null ? readResponse.getContent().length : 0),
+                                    AttributeKey.longKey("remaining"), readResponse.getRemaining()
+                            ));
+                        }
+                        case SetInfo -> {
+                            var setInfoRequest = (SetInfoRequest) request.getPayload();
+                            span.addEvent("set info request", Attributes.of(
+                                    AttributeKey.longKey("id"), setInfoRequest.getPersistentFileId(),
+                                    AttributeKey.stringKey("info type"), setInfoRequest.getInfoType().name(),
+                                    AttributeKey.stringKey("info class"), setInfoRequest.getFileInformationClass() != null ? setInfoRequest.getFileInformationClass().name() : "",
+                                    AttributeKey.stringKey("system info class"), setInfoRequest.getFileSystemInformationClass() != null ? setInfoRequest.getFileSystemInformationClass().name() : ""
+                            ));
+                            var setInfoResponse = new SetInfoResponse();
+                            response.setPayload(setInfoResponse);
+                            if (setInfoRequest.getFileInformationClass() != FileInformationClass.FileDispositionInformation) {
+                                throw new UnsupportedOperationException("Not yet implemented info class " + setInfoRequest.getFileInformationClass());
+                            }
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                Tree tree = session.getTrees().get(request.getSmbHeader().getTreeId());
+                                if (tree != null) {
+                                    ObjectInfo object = tree.getFileTree().get(setInfoRequest.getPersistentFileId());
+                                    if (object != null) {
+                                        shareUseCase.removeFile(tree.getName(), object.getName());
+                                    }
+                                }
+                            }
+                            span.addEvent("set info response");
+                        }
+                        case Close -> {
+                            var closeRequest = (CloseRequest) request.getPayload();
+                            span.addEvent("close request", Attributes.of(
+                                    AttributeKey.longKey("persistentId"), closeRequest.getPersistentId(),
+                                    AttributeKey.longKey("volatileId"), closeRequest.getVolatileId()
+                            ));
+                            var closeResponse = new CloseResponse();
+                            response.setPayload(closeResponse);
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                Tree tree = session.getTrees().get(request.getSmbHeader().getTreeId());
+                                if (tree != null) {
+                                    tree.getFileTree().remove(closeRequest.getPersistentId());
+                                }
+                            }
+                            span.addEvent("close response");
+                        }
+                        case TreeDisconnect -> {
+                            var treeDisconnectRequest = (TreeDisconnectRequest) request.getPayload();
+                            span.addEvent("tree disconnect request");
+                            var treeDisconnectResponse = new TreeDisconnectResponse();
+                            response.setPayload(treeDisconnectResponse);
+                            Session session = sessionTrees.get(request.getSmbHeader().getSessionId());
+                            if (session != null && session.isEstablished()) {
+                                session.getTrees().remove(request.getSmbHeader().getTreeId());
+                            }
+                            span.addEvent("tree disconnect response");
+                        }
+                        case Logoff -> {
+                            var logoffRequest = (LogoffRequest) request.getPayload();
+                            span.addEvent("logoff request");
+                            var logoffResponse = new LogoffResponse();
+                            response.setPayload(logoffResponse);
+                            sessionTrees.remove(request.getSmbHeader().getSessionId());
+                            span.addEvent("logoff response");
+                        }
+                        default -> throw new UnsupportedOperationException("Not yet implemented!");
+                    }
+                    response.write(clientSocket.getOutputStream());
+                    clientSocket.getOutputStream().flush();
+                } catch (NoMoreDataException e) {
+                    span.addEvent("connection closed");
+                    open = false;
+                }
+            }
+        } catch (Exception e) {
+            span.setStatus(StatusCode.ERROR);
+            span.recordException(e);
+        } finally {
+            try {
+                clientSocket.close();
+            } catch (IOException e) {
+                span.addEvent("client socket close failure", Attributes.of(AttributeKey.stringKey("exception"), e.toString()));
+            }
+            span.end();
+        }
+    }
+
+    public void setClientSocket(Socket clientSocket) {
+        this.clientSocket = clientSocket;
+    }
+}
