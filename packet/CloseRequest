@@ -1,0 +1,65 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class CloseRequest implements SmbPayload {
+
+    public static final int lengthValue = 24;
+
+    private int length;
+    private EnumSet<Flag> flags;
+    private long persistentId;
+    private long volatileId;
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("Close request size " + length);
+        }
+        int flagsValue = DataHelper.readShort(input);
+        flags = Flag.findBySum(flagsValue);
+        DataHelper.skip(input, 4);
+        persistentId = DataHelper.readLong(input);
+        volatileId = DataHelper.readLong(input);
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Getter
+    public enum Flag {
+        SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB(0x0001);
+
+        private final int code;
+
+        Flag(int code) {
+            this.code = code;
+        }
+
+        public static EnumSet<Flag> findBySum(int sum) {
+            List<Flag> flags = Arrays.stream(values())
+                    .filter(flag -> (flag.code & sum) == 1)
+                    .collect(Collectors.toList());
+            return flags.isEmpty() ? EnumSet.noneOf(Flag.class) : EnumSet.copyOf(flags);
+        }
+    }
+}
