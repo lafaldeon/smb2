@@ -1,0 +1,152 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.CountingInputStream;
+import ru.sber.samba.smb.tcpip.CountingOutputStream;
+import ru.sber.samba.smb.tcpip.TransportPacketHeader;
+
+@Getter
+@Setter
+public class SmbMessage {
+
+    private final TransportPacketHeader transportPacketHeader = new TransportPacketHeader();
+    private final SmbHeader smbHeader = new SmbHeader();
+    private SmbPayload payload;
+
+    @SneakyThrows
+    public static SmbMessage read(InputStream inputStream) {
+
+        CountingInputStream input = new CountingInputStream(inputStream);
+        SmbMessage smbMessage = new SmbMessage();
+
+        smbMessage.transportPacketHeader.read(input);
+        smbMessage.smbHeader.read(input);
+
+        switch (smbMessage.smbHeader.getCommand()) {
+            case Negotiate -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var negotiationRequest = new NegotiationRequest();
+                    negotiationRequest.read(input);
+                    smbMessage.payload = negotiationRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case SessionSetup -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var sessionRequest = new SessionRequest();
+                    sessionRequest.read(input);
+                    smbMessage.payload = sessionRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case TreeConnect -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var treeConnectRequest = new TreeConnectRequest();
+                    treeConnectRequest.read(input);
+                    smbMessage.payload = treeConnectRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case Create -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var createRequest = new CreateRequest();
+                    createRequest.read(input);
+                    smbMessage.payload = createRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case QueryDirectory -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var queryDirectoryRequest = new QueryDirectoryRequest();
+                    queryDirectoryRequest.read(input);
+                    smbMessage.payload = queryDirectoryRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case Read -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var readRequest = new ReadRequest();
+                    readRequest.read(input);
+                    smbMessage.payload = readRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case SetInfo -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var setInfoRequest = new SetInfoRequest();
+                    setInfoRequest.read(input);
+                    smbMessage.payload = setInfoRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case Close -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var closeRequest = new CloseRequest();
+                    closeRequest.read(input);
+                    smbMessage.payload = closeRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case TreeDisconnect -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var treeDisconnectRequest = new TreeDisconnectRequest();
+                    treeDisconnectRequest.read(input);
+                    smbMessage.payload = treeDisconnectRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            case Logoff -> {
+                if (!smbMessage.smbHeader.getFlags().contains(SmbHeader.Flag.SMB2_FLAGS_SERVER_TO_REDIR)) {
+                    var logoffRequest = new LogoffRequest();
+                    logoffRequest.read(input);
+                    smbMessage.payload = logoffRequest;
+                } else {
+                    throw new UnsupportedOperationException("Not yet implemented response command" + smbMessage.smbHeader.getCommand().name());
+                }
+            }
+            default -> throw new UnsupportedOperationException("Not yet implemented ntlm command " + smbMessage.smbHeader.getCommand().name());
+        }
+
+        while (input.getCounter() < smbMessage.transportPacketHeader.getPacketlength() + TransportPacketHeader.headerLength) {
+            input.read();
+        }
+
+        return smbMessage;
+    }
+
+    public void write(OutputStream outputStream) {
+
+        CountingOutputStream output = new CountingOutputStream(outputStream);
+
+        transportPacketHeader.setPacketlength(smbHeader.getLength() + payload.getSize());
+        transportPacketHeader.write(output);
+        if (output.getCounter() != TransportPacketHeader.headerLength) {
+            throw new IllegalArgumentException("Expected tcp packet header length is" + TransportPacketHeader.headerLength + " but actual is " + output.getCounter());
+        }
+
+        smbHeader.write(output);
+        if (output.getCounter() != TransportPacketHeader.headerLength + smbHeader.getLength()) {
+            throw new IllegalArgumentException("Expected smb header length is" + smbHeader.getLength() + " but actual is " + (output.getCounter() - TransportPacketHeader.headerLength));
+        }
+
+        payload.write(output);
+        if (output.getCounter() != TransportPacketHeader.headerLength + transportPacketHeader.getPacketlength()) {
+            throw new IllegalArgumentException("Expected smb payload response length is" + payload.getSize() + " but actual is " + (output.getCounter() - TransportPacketHeader.headerLength - smbHeader.getLength()));
+        }
+    }
+}
+
