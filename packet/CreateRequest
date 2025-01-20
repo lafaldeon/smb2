@@ -1,0 +1,101 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.file.FileAttribute;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class CreateRequest implements SmbPayload {
+
+    public final static int lengthValue = 57;
+    public final static long payloadOffset = 56;
+
+    private int length = lengthValue;
+    private EnumSet<FileAttribute> attributes = EnumSet.noneOf(FileAttribute.class);
+    private EnumSet<CreateFlag> createFlags = EnumSet.noneOf(CreateFlag.class);
+    private String name;
+    private byte[] context = new byte[0];
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("Negotiation request size " + length);
+        }
+        DataHelper.skip(input, 26);
+        attributes = FileAttribute.findBySum(DataHelper.readInteger(input));
+        DataHelper.skip(input, 8);
+        createFlags = CreateFlag.findBySum(DataHelper.readInteger(input));
+        int nameOffset = DataHelper.readShort(input);
+        int nameLength = DataHelper.readShort(input);
+        DataHelper.Slice name = new DataHelper.Slice(nameOffset, nameLength);
+        long ctxOffset = DataHelper.readInteger(input);
+        long ctxLength = DataHelper.readInteger(input);
+        DataHelper.Slice context = new DataHelper.Slice(ctxOffset, (int) ctxLength);
+        Map<DataHelper.Slice, byte[]> payloads = DataHelper.readSlices(input, SmbHeader.lengthValue + payloadOffset, List.of(name, context));
+        if (payloads.containsKey(name)) {
+            this.name = new String(payloads.get(name), StandardCharsets.UTF_16LE);
+        }
+        if (payloads.containsKey(context)) {
+            this.context = payloads.get(context);
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    public enum CreateFlag {
+        FILE_DIRECTORY_FILE(0x00000001),
+        FILE_WRITE_THROUGH(0x00000002),
+        FILE_SEQUENTIAL_ONLY(0x00000004),
+        FILE_NO_INTERMEDIATE_BUFFERING(0x00000008),
+        FILE_SYNCHRONOUS_IO_ALERT(0x00000010),
+        FILE_SYNCHRONOUS_IO_NONALERT(0x00000020),
+        FILE_NON_DIRECTORY_FILE(0x00000040),
+        FILE_COMPLETE_IF_OPLOCKED(0x00000100),
+        FILE_NO_EA_KNOWLEDGE(0x00000200),
+        FILE_RANDOM_ACCESS(0x00000800),
+        FILE_DELETE_ON_CLOSE(0x00001000),
+        FILE_OPEN_BY_FILE_ID(0x00002000),
+        FILE_OPEN_FOR_BACKUP_INTENT(0x00004000),
+        FILE_NO_COMPRESSION(0x00008000),
+        FILE_OPEN_REMOTE_INSTANCE(0x00000400),
+        FILE_OPEN_REQUIRING_OPLOCK(0x00010000),
+        FILE_DISALLOW_EXCLUSIVE(0x00020000),
+        FILE_RESERVE_OPFILTER(0x00100000),
+        FILE_OPEN_REPARSE_POINT(0x00200000),
+        FILE_OPEN_NO_RECALL(0x00400000),
+        FILE_OPEN_FOR_FREE_SPACE_QUERY(0x00800000);
+
+        private final long code;
+
+        CreateFlag(long code) {
+            this.code = code;
+        }
+
+        public static EnumSet<CreateFlag> findBySum(long sum) {
+            List<CreateFlag> flags = Arrays.stream(values())
+                    .filter(flag -> (flag.code & sum) == 1)
+                    .collect(Collectors.toList());
+            return flags.isEmpty() ? EnumSet.noneOf(CreateFlag.class) : EnumSet.copyOf(flags);
+        }
+    }
+}
