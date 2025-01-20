@@ -1,0 +1,39 @@
+package ru.sber.samba.smb.ntlm.security;
+
+import java.security.Provider;
+
+public class JceSecurityProvider implements SecurityProvider {
+
+    private final Provider jceProvider;
+    private final String providerName;
+
+    public JceSecurityProvider() {
+        jceProvider = null;
+        providerName = null;
+    }
+
+    public JceSecurityProvider(String providerName) {
+        this.providerName = providerName;
+        this.jceProvider = null;
+    }
+
+    public JceSecurityProvider(Provider provider) {
+        this.providerName = null;
+        this.jceProvider = provider;
+    }
+
+    @Override
+    public MessageDigest getDigest(String name) throws SecurityException {
+        return new JceMessageDigest(name, jceProvider, providerName);
+    }
+
+    @Override
+    public Mac getMac(String name) throws SecurityException {
+        return new JceMac(name, jceProvider, providerName);
+    }
+
+    @Override
+    public Cipher getCipher(String name) throws SecurityException {
+        return new JceCipher(name, jceProvider, providerName);
+    }
+}
