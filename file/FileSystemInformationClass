@@ -1,0 +1,25 @@
+package ru.sber.samba.smb.file;
+
+import java.util.Arrays;
+
+import lombok.Getter;
+
+@Getter
+public enum FileSystemInformationClass {
+
+    FileFsControlInformation(6),
+    FileFsObjectIdInformation(8);
+
+    private final int code;
+
+    FileSystemInformationClass(int code) {
+        this.code = code;
+    }
+
+    public static FileSystemInformationClass findByCode(int code) {
+        return Arrays.stream(values())
+                .filter(info -> info.code == code)
+                .findAny()
+                .orElse(null);
+    }
+}
