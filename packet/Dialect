@@ -1,0 +1,32 @@
+package ru.sber.samba.smb.packet;
+
+import lombok.Getter;
+
+@Getter
+public enum Dialect {
+
+    SMB202(0x0202),
+    SMB210(0x0210),
+    SMB300(0x0300),
+    SMB302(0x0302),
+    SMB311(0x0311);
+
+    private final int code;
+
+    Dialect(int code) {
+        this.code = code;
+    }
+
+    public static Dialect findByCode(Integer code) {
+        if (code == null) {
+            throw new IllegalArgumentException("Code can't be null");
+        }
+        for (Dialect dialect : values()) {
+            if (dialect.code == code) {
+                return dialect;
+            }
+        }
+        throw new IllegalArgumentException("No smb version with code " + code);
+    }
+}
+
