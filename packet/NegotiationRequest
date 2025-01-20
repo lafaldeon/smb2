@@ -1,0 +1,43 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class NegotiationRequest implements SmbPayload {
+
+    public final static int lengthValue = 36;
+
+    private int length = lengthValue;
+    private int dialectCount;
+    private List<Dialect> dialects = new ArrayList<>();
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("Negotiation request size " + length);
+        }
+        dialectCount = DataHelper.readShort(input);
+        DataHelper.skip(input, 32);
+        for (int i = 0; i < dialectCount; i++) {
+            dialects.add(Dialect.findByCode(DataHelper.readShort(input)));
+        }
+    }
+
+    @Override
+    public int getSize() {
+        return length + dialectCount * 2;
+    }
+
+    public void write(OutputStream outputStream) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+}
