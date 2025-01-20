@@ -1,0 +1,6 @@
+package ru.sber.samba.smb.packet;
+
+import ru.sber.samba.smb.base.Payload;
+
+public interface SmbPayload extends Payload {
+}
