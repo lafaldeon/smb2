@@ -1,0 +1,61 @@
+package ru.sber.samba.smb.ntlm.security;
+
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Provider;
+import javax.crypto.spec.SecretKeySpec;
+
+public class JceMac implements Mac {
+    private final String algorithm;
+    private javax.crypto.Mac mac;
+
+    public JceMac(String algorithm, Provider jceProvider, String providerName) throws SecurityException {
+        this.algorithm = algorithm;
+        try {
+            if (jceProvider != null) {
+                mac = javax.crypto.Mac.getInstance(algorithm, jceProvider);
+            } else if (providerName != null) {
+                mac = javax.crypto.Mac.getInstance(algorithm, providerName);
+            } else {
+                mac = javax.crypto.Mac.getInstance(algorithm);
+            }
+        } catch (NoSuchProviderException | NoSuchAlgorithmException e) {
+            throw new SecurityException(e);
+        }
+    }
+
+    @Override
+    public void init(byte[] key) throws SecurityException {
+        try {
+            mac.init(new SecretKeySpec(key, algorithm));
+        } catch (InvalidKeyException e) {
+            throw new SecurityException(e);
+        }
+    }
+
+    @Override
+    public void update(byte b) {
+        mac.update(b);
+    }
+
+    @Override
+    public void update(byte[] array) {
+        mac.update(array);
+    }
+
+    @Override
+    public void update(byte[] array, int offset, int length) {
+        mac.update(array, offset, length);
+    }
+
+    @Override
+    public byte[] doFinal() {
+        return mac.doFinal();
+    }
+
+    @Override
+    public void reset() {
+        mac.reset();
+    }
+}
