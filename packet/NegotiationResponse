@@ -1,0 +1,48 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.time.Instant;
+import java.util.UUID;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class NegotiationResponse implements SmbPayload {
+
+    public final static int lengthValue = 65;
+    public final static long payloadOffset = 64;
+
+    private int length = lengthValue;
+    private Dialect dialect;
+    private UUID serverUuid;
+    private Instant systemTime;
+    private Instant startTime;
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return (int) payloadOffset;
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        DataHelper.writeZero(output, 2);
+        DataHelper.writeShort(dialect.getCode(), output);
+        DataHelper.writeZero(output, 2);
+        DataHelper.wrtieUuid(serverUuid, output);
+        DataHelper.writeZero(output, 16);
+        DataHelper.writeLong(DataHelper.toNtTime(systemTime), output);
+        DataHelper.writeLong(DataHelper.toNtTime(startTime), output);
+        DataHelper.writeZero(output, 8);
+    }
+}
