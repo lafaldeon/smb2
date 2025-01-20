@@ -1,0 +1,38 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Arrays;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class NtlmHeader {
+
+    public static final byte[] protocolIdValue = new byte[] {'N', 'T', 'L', 'M', 'S', 'S', 'P', 0};
+    public static final int lengthValue = 12;
+
+    private byte[] protocolId = Arrays.copyOf(protocolIdValue, 8);
+    private NtlmCommand command;
+
+    @SneakyThrows
+    public void read(InputStream input) {
+        for (int i = 0; i < protocolId.length; i++) {
+            protocolId[i] = DataHelper.toByte(input.read());
+        }
+        if (!Arrays.equals(protocolId, protocolIdValue)) {
+            throw new IllegalArgumentException("Illegal protocol id " + protocolId);
+        }
+        command = NtlmCommand.findByCode((int) DataHelper.readInteger(input));
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        output.write(protocolId);
+        DataHelper.writeInteger(command.getCode(), output);
+    }
+}
