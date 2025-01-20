@@ -1,0 +1,157 @@
+package ru.sber.samba.config;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import io.opentelemetry.api.trace.Tracer;
+import jakarta.inject.Provider;
+import lombok.SneakyThrows;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Scope;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.web.bind.annotation.RestController;
+import ru.sber.samba.share.ShareInputPort;
+import ru.sber.samba.smb.ntlm.security.JceSecurityProvider;
+import ru.sber.samba.smb.ntlm.security.NtlmFunctions;
+import ru.sber.samba.smb.ntlm.security.SecurityProvider;
+import ru.sber.samba.smb.share.ShareUseCase;
+import ru.sber.samba.smb.tcpip.ClientSocketHandler;
+import ru.sber.samba.smb.tcpip.ServerSocketListener;
+import ru.sber.samba.smb.user.UserUseCase;
+import ru.sber.samba.user.UserInputPort;
+import ru.sber.samba.util.FrameworkComponent;
+
+@SpringBootConfiguration
+@EnableAutoConfiguration
+@ComponentScan(
+        value = "ru.sber.samba",
+        includeFilters = @ComponentScan.Filter({Configuration.class, RestController.class, FrameworkComponent.class})
+)
+public class SambaConfiguration {
+
+    @Autowired
+    private ConfigurableEnvironment environment;
+
+    @Bean
+    public ServerSocketListener serverSocketListener(
+            ExecutorService smbClientPool,
+            Provider<ClientSocketHandler> clientHandler
+    ) {
+        String portProperty = environment.getProperty("geo-samba.server.port");
+        return new ServerSocketListener(
+                smbClientPool,
+                clientHandler,
+                portProperty != null && !portProperty.trim().isEmpty() ?
+                        Integer.parseInt(portProperty) :
+                        445
+        );
+    }
+
+    @Bean
+    @SneakyThrows
+    public Path sharePath() {
+        String sharePathProperty = environment.getProperty("geo-samba.server.share-path");
+        if (sharePathProperty != null && !sharePathProperty.isBlank()) {
+            return Paths.get(sharePathProperty);
+        } else {
+            return Files.createTempDirectory("geo-samba");
+        }
+    }
+
+    @Bean
+    @Scope(BeanDefinition.SCOPE_PROTOTYPE)
+    @SneakyThrows
+    public ClientSocketHandler clientHandler(
+            UserUseCase userUseCase,
+            ShareUseCase shareUseCase,
+            SecureRandom random,
+            NtlmFunctions ntlmFunction,
+            UUID serverUuid,
+            Instant startTime,
+            Tracer tracer
+    ) {
+        return new ClientSocketHandler(
+                userUseCase,
+                shareUseCase,
+                random,
+                ntlmFunction,
+                serverUuid,
+                startTime,
+                tracer
+        );
+    }
+
+    @Bean
+    public ShareUseCase shareUseCase(Path sharePath) {
+        return new ShareInputPort(sharePath);
+    }
+
+    @Bean
+    public UserUseCase userUseCase() {
+        String usernameProperty = environment.getProperty("geo-samba.server.username");
+        String passwordProperty = environment.getProperty("geo-samba.server.password");
+        String domainProperty = environment.getProperty("geo-samba.server.domain");
+        return new UserInputPort(domainProperty, usernameProperty, passwordProperty);
+    }
+
+    @Bean
+    @SneakyThrows
+    public ExecutorService smbClientPool() {
+        return Executors.newFixedThreadPool(10);
+    }
+
+    @Bean
+    @Scope(BeanDefinition.SCOPE_PROTOTYPE)
+    @SneakyThrows
+    public SecureRandom random() {
+        return SecureRandom.getInstance("NativePRNGNonBlocking");
+    }
+
+    @Bean
+    public SecurityProvider jceSecurityProvider() {
+        return new JceSecurityProvider();
+    }
+
+    @Bean
+    public NtlmFunctions ntlmFunctions(
+            SecureRandom random,
+            SecurityProvider jceSecurityProvider
+    ) {
+        return new NtlmFunctions(random, jceSecurityProvider);
+    }
+
+    @Bean
+    public UUID serverUuid() {
+        return UUID.randomUUID();
+    }
+
+    @Bean
+    public Instant serverStartTime() {
+        return Instant.now();
+    }
+
+    @Bean
+    public GeoSambaLifecycleManager geoSambaLifecycleManager(
+            ServerSocketListener serverSocketListener,
+            UUID serverUuid,
+            Instant serverStartTime
+    ) {
+        return new GeoSambaLifecycleManager(
+                serverSocketListener,
+                serverUuid,
+                serverStartTime
+        );
+    }
+}
