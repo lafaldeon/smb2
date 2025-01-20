@@ -1,0 +1,16 @@
+package ru.sber.samba.smb.ntlm.security;
+
+public interface Mac {
+
+    void init(byte[] key) throws SecurityException;
+
+    void update(byte b);
+
+    void update(byte[] array);
+
+    void update(byte[] array, int offset, int length);
+
+    byte[] doFinal();
+
+    void reset();
+}
