@@ -1,0 +1,46 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
+
+import lombok.Getter;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class TreeConnectRequest implements SmbPayload {
+
+    public static final int lengthValue = 9;
+    public static final int payloadOffset = 8;
+
+    private int length = lengthValue;
+    private String path;
+
+    @Override
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("Packet length must be " + lengthValue + " but is " + length);
+        }
+        DataHelper.skip(input, 2);
+        int pathOffset = DataHelper.readShort(input);
+        int pathLength = DataHelper.readShort(input);
+        DataHelper.Slice path = new DataHelper.Slice(pathOffset, pathLength);
+        Map<DataHelper.Slice, byte[]> payloads = DataHelper.readSlices(input, SmbHeader.lengthValue + payloadOffset, List.of(path));
+        if (payloads.containsKey(path)) {
+            this.path = new String(payloads.get(path), StandardCharsets.UTF_16LE);
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+}
