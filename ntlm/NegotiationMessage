@@ -1,0 +1,54 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class NegotiationMessage implements NtlmPayload {
+
+    public static final int payloadOffset = 40;
+
+    private EnumSet<NegotiationFlag> flags = EnumSet.noneOf(NegotiationFlag.class);
+    private String domain;
+    private String workstation;
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        flags = NegotiationFlag.unpack(DataHelper.readInteger(input));
+        int domainLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long domainOffset = DataHelper.readInteger(input);
+        DataHelper.Slice domain = new DataHelper.Slice(domainOffset, domainLength);
+        int workstationLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long workstationOffset = DataHelper.readInteger(input);
+        DataHelper.Slice workstation = new DataHelper.Slice(workstationOffset, workstationLength);
+        DataHelper.skip(input, 8);
+        Map<DataHelper.Slice, byte[]> payloadContent = DataHelper.readSlices(input, payloadOffset, List.of(domain, workstation));
+        if (payloadContent.containsKey(domain)) {
+            this.domain = new String(payloadContent.get(domain), StandardCharsets.UTF_16LE);
+        }
+        if (payloadContent.containsKey(workstation)) {
+            this.workstation = new String(payloadContent.get(workstation), StandardCharsets.UTF_16LE);
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+}
