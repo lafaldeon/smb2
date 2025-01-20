@@ -1,0 +1,43 @@
+package ru.sber.samba.smb.tcpip;
+
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import jakarta.inject.Provider;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
+
+@RequiredArgsConstructor
+@Slf4j
+public class ServerSocketListener implements Runnable {
+
+    private final ExecutorService executorService;
+    private final Provider<ClientSocketHandler> clientHandlerProvider;
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final int port;
+
+    @Override
+    @SneakyThrows
+    public void run() {
+
+        try {
+            ServerSocket serverSocket = new ServerSocket(port);
+            while (running.get()) {
+                Socket clientSocket = serverSocket.accept();
+                ClientSocketHandler clientSocketHandler = clientHandlerProvider.get();
+                clientSocketHandler.setClientSocket(clientSocket);
+                executorService.submit(clientSocketHandler);
+            }
+            serverSocket.close();
+        } catch (Exception e) {
+            log.error("ServerSocketListener error", e);
+        }
+    }
+
+    public void stop() {
+        running.set(false);
+    }
+}
