@@ -1,0 +1,51 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.EnumSet;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class ChallengeMessage implements NtlmPayload {
+
+    public static final long payloadOffset = 44;
+
+    private EnumSet<NegotiationFlag> flags = EnumSet.noneOf(NegotiationFlag.class);
+    private byte[] challenge;
+    private String target;
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return ((int) payloadOffset) + (target != null ? target.getBytes(StandardCharsets.UTF_16LE).length : 0);
+    }
+
+    @Override
+    @SneakyThrows
+    public void write(OutputStream output) {
+        byte[] target = this.target != null ? this.target.getBytes(StandardCharsets.UTF_16LE): new byte[0];
+        if (target.length > 0) {
+            DataHelper.writeShort(target.length, output);
+            DataHelper.writeShort(target.length, output);
+            DataHelper.writeInteger(NtlmHeader.lengthValue + payloadOffset, output);
+        } else {
+            DataHelper.writeZero(output, 8);
+        }
+        DataHelper.writeInteger(NegotiationFlag.pack(flags), output);
+        output.write(challenge);
+        DataHelper.writeZero(output, 24);
+        if (target.length > 0) {
+            output.write(target);
+        }
+    }
+}
