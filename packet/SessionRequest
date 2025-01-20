@@ -1,0 +1,102 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.ntlm.AuthenticateMessage;
+import ru.sber.samba.smb.ntlm.NegTokenRequest;
+import ru.sber.samba.smb.ntlm.NegTokenResponse;
+import ru.sber.samba.smb.ntlm.NegotiationMessage;
+import ru.sber.samba.smb.ntlm.NtlmHeader;
+import ru.sber.samba.smb.ntlm.NtlmPayload;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class SessionRequest implements SmbPayload {
+
+    public static final int lengthValue = 25;
+    public static final long payloadOffset = 24;
+
+    private int length = lengthValue;
+    private SecurityMode securityMode;
+    private NtlmHeader ntlmHeader = new NtlmHeader();
+    private NtlmPayload ntlmPayload;
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        DataHelper.skip(input, 1);
+        securityMode = SecurityMode.findByCode(input.read()).orElse(null);
+        DataHelper.skip(input, 8);
+        int contentOffset = DataHelper.readShort(input);
+        int contentLength = DataHelper.readShort(input);
+        DataHelper.Slice gss = new DataHelper.Slice(contentOffset, contentLength);
+        DataHelper.skip(input, 8);
+        Map<DataHelper.Slice, byte[]> payloads = DataHelper.readSlices(input, SmbHeader.lengthValue + payloadOffset, List.of(gss));
+        ByteArrayInputStream bais = new ByteArrayInputStream(payloads.get(gss));
+        ByteArrayInputStream ntlmInput;
+        try {
+            NegTokenRequest gssRequest = new NegTokenRequest();
+            gssRequest.read(bais);
+            ntlmInput = new ByteArrayInputStream(gssRequest.getMechToken());
+        } catch (Exception e) {
+            bais = new ByteArrayInputStream(payloads.get(gss));
+            NegTokenResponse gssResponse = new NegTokenResponse();
+            gssResponse.read(bais);
+            ntlmInput = new ByteArrayInputStream(gssResponse.getResponseToken());
+        }
+
+        ntlmHeader.read(ntlmInput);
+        switch (ntlmHeader.getCommand()) {
+            case NEGOTIATE -> {
+                var negotiationMessage = new NegotiationMessage();
+                negotiationMessage.read(ntlmInput);
+                ntlmPayload = negotiationMessage;
+            }
+            case AUTHENTICATE -> {
+                var authenticationMessage = new AuthenticateMessage();
+                authenticationMessage.read(ntlmInput);
+                ntlmPayload = authenticationMessage;
+            }
+            default -> throw new UnsupportedOperationException("Not yet implemented ntlm command " + ntlmHeader.getCommand());
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Getter
+    public enum SecurityMode {
+        SMB2_NEGOTIATE_SIGNING_ENABLED(0x01),
+        SMB2_NEGOTIATE_SIGNING_REQUIRED(0x02);
+
+        private final int code;
+
+        SecurityMode(int code) {
+            this.code = code;
+        }
+
+        public static Optional<SecurityMode> findByCode(int code) {
+            return Arrays.stream(values())
+                    .filter(mode -> mode.code == code)
+                    .findAny();
+        }
+    }
+}
