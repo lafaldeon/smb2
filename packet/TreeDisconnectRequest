@@ -1,0 +1,34 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+public class TreeDisconnectRequest implements SmbPayload {
+
+    public static final int lengthValue = 4;
+
+    private int length;
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("TreeDisconnect request size " + length);
+        }
+        DataHelper.skip(input, 2);
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+}
