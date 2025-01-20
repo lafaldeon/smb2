@@ -1,0 +1,66 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.EnumSet;
+
+import lombok.Getter;
+import lombok.Setter;
+import ru.sber.samba.smb.file.FileAttribute;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class CreateResponse implements SmbPayload {
+
+    public final static int lengthValue = 89;
+
+    private int length = lengthValue;
+    private CreateAction createAction;
+    private EnumSet<FileAttribute> fileAttributes = EnumSet.noneOf(FileAttribute.class);
+    private long persistentFileId;
+    private long volatileFileId;
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return lengthValue - 1;
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        DataHelper.writeZero(output, 2);
+        DataHelper.writeInteger(createAction.code, output);
+        DataHelper.writeZero(output, 48);
+        long fileAttributesValue = fileAttributes.stream()
+                .reduce(
+                        0L,
+                        (current, attribute) -> current + attribute.getCode(),
+                        Long::sum
+                );
+        DataHelper.writeInteger(fileAttributesValue, output);
+        DataHelper.writeZero(output, 4);
+        DataHelper.writeLong(persistentFileId, output);
+        DataHelper.writeLong(volatileFileId, output);
+        DataHelper.writeZero(output, 8);
+    }
+
+    @Getter
+    public enum CreateAction {
+        FILE_SUPERSEDED(0x00000000),
+        FILE_OPENED(0x00000001),
+        FILE_CREATED(0x00000002),
+        FILE_OVERWRITTEN(0x00000003);
+
+        private final int code;
+
+        CreateAction(int code) {
+            this.code = code;
+        }
+    }
+}
