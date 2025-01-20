@@ -1,0 +1,55 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.util.Arrays;
+import java.util.EnumSet;
+
+import lombok.Getter;
+
+@Getter
+public enum NegotiationFlag {
+
+    NTLMSSP_NEGOTIATE_56(0),
+    NTLMSSP_NEGOTIATE_KEY_EXCH(1),
+    NTLMSSP_NEGOTIATE_128(2),
+    NTLMSSP_NEGOTIATE_VERSION(6),
+    NTLMSSP_NEGOTIATE_TARGET_INFO(8),
+    NTLMSSP_REQUEST_NON_NT_SESSION_KEY(9),
+    NTLMSSP_NEGOTIATE_IDENTIFY(11),
+    NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY(12),
+    NTLMSSP_TARGET_TYPE_SERVER(14),
+    NTLMSSP_TARGET_TYPE_DOMAIN(15),
+    NTLMSSP_NEGOTIATE_ALWAYS_SIGN(16),
+    NTLMSSP_NEGOTIATE_OEM_WORKSTATION_SUPPLIED(18),
+    NTLMSSP_NEGOTIATE_OEM_DOMAIN_SUPPLIED(19),
+    NTLMSSP_NEGOTIATE_ANONYMOUS(20),
+    NTLMSSP_NEGOTIATE_NTLM(22),
+    NTLMSSP_NEGOTIATE_LM_KEY(24),
+    NTLMSSP_NEGOTIATE_DATAGRAM(25),
+    NTLMSSP_NEGOTIATE_SEAL(26),
+    NTLMSSP_NEGOTIATE_SIGN(27),
+    NTLMSSP_REQUEST_TARGET(29),
+    NTLM_NEGOTIATE_OEM(30),
+    NTLMSSP_NEGOTIATE_UNICODE(31);
+
+    private final int offset;
+    private final long value;
+
+    NegotiationFlag(int offset) {
+        this.offset = offset;
+        this.value = 1L << offset;
+    }
+
+    public static EnumSet<NegotiationFlag> unpack(long flags) {
+        return flags == 0 ?
+                EnumSet.noneOf(NegotiationFlag.class)
+                :
+                EnumSet.copyOf(Arrays.stream(values())
+                        .filter(flag -> (flags & flag.value) > 0)
+                        .toList()
+                );
+    }
+
+    public static long pack(EnumSet<NegotiationFlag> enumSet) {
+        return enumSet.stream().map(NegotiationFlag::getValue).count();
+    }
+}
