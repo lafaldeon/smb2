@@ -1,0 +1,159 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.hierynomus.asn1.ASN1InputStream;
+import com.hierynomus.asn1.ASN1OutputStream;
+import com.hierynomus.asn1.encodingrules.der.DERDecoder;
+import com.hierynomus.asn1.encodingrules.der.DEREncoder;
+import com.hierynomus.asn1.types.ASN1Object;
+import com.hierynomus.asn1.types.ASN1Tag;
+import com.hierynomus.asn1.types.constructed.ASN1Sequence;
+import com.hierynomus.asn1.types.constructed.ASN1TaggedObject;
+import com.hierynomus.asn1.types.primitive.ASN1Enumerated;
+import com.hierynomus.asn1.types.primitive.ASN1ObjectIdentifier;
+import com.hierynomus.asn1.types.string.ASN1OctetString;
+
+public class NegTokenResponse extends SpnegoToken {
+
+    private BigInteger negotiationResult;
+    private ASN1ObjectIdentifier supportedMech;
+    private byte[] responseToken;
+    private byte[] mechListMic;
+
+    public NegTokenResponse() {
+        super(0x01, "NegTokenTarg");
+    }
+
+    public byte[] write() {
+        List<ASN1Object> negTokenTarg = new ArrayList<>();
+        try {
+            if (negotiationResult != null) {
+                negTokenTarg.add(new ASN1TaggedObject(ASN1Tag.contextSpecific(0x0).constructed(), new ASN1Enumerated(negotiationResult)));
+            }
+            if (supportedMech != null) {
+                negTokenTarg.add(new ASN1TaggedObject(ASN1Tag.contextSpecific(0x01).constructed(), supportedMech));
+            }
+            if (responseToken != null && responseToken.length > 0) {
+                negTokenTarg.add(new ASN1TaggedObject(ASN1Tag.contextSpecific(0x02).constructed(), new ASN1OctetString(responseToken)));
+            }
+            if (mechListMic != null && mechListMic.length > 0) {
+                negTokenTarg.add(new ASN1TaggedObject(ASN1Tag.contextSpecific(0x03).constructed(), new ASN1OctetString(mechListMic)));
+            }
+
+            return writeGss(new ASN1Sequence(negTokenTarg));
+        } catch (IOException e) {
+            throw new RuntimeException("Could not write NegTokenTarg to buffer", e);
+        }
+    }
+
+
+    // Override writeGss for NTLMSSP_AUTH since Samba does not like putting the OID for SPNEGO
+    protected byte[] writeGss(ASN1Object negToken) throws IOException {
+        ASN1TaggedObject negotiationToken = new ASN1TaggedObject(ASN1Tag.contextSpecific(0x01).constructed(), negToken, true);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ASN1OutputStream out = new ASN1OutputStream(new DEREncoder(), baos)) {
+            out.writeObject(negotiationToken);
+        }
+        return baos.toByteArray();
+    }
+
+    public NegTokenResponse read(InputStream input) {
+        try (ASN1InputStream is = new ASN1InputStream(new DERDecoder(), input)) {
+            ASN1Object instance = is.readObject();
+            parseSpnegoToken(instance);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not read NegTokenTarg from buffer", e);
+        }
+        return this;
+    }
+
+    @Override
+    protected void parseTagged(ASN1TaggedObject asn1TaggedObject) {
+        switch (asn1TaggedObject.getTagNo()) {
+            case 0:
+                readNegResult(asn1TaggedObject.getObject());
+                break;
+            case 1:
+                readSupportedMech(asn1TaggedObject.getObject());
+                break;
+            case 2:
+                readResponseToken(asn1TaggedObject.getObject());
+                break;
+            case 3:
+                readMechListMIC(asn1TaggedObject.getObject());
+                break;
+            default:
+                throw new RuntimeException("Unknown Object Tag " + asn1TaggedObject.getTagNo() + " encountered.");
+        }
+
+    }
+
+    private void readResponseToken(ASN1Object responseToken) {
+        if (!(responseToken instanceof ASN1OctetString)) {
+            throw new RuntimeException("Expected the responseToken (OCTET_STRING) contents, not: " + responseToken);
+        }
+        this.responseToken = ((ASN1OctetString) responseToken).getValue();
+
+    }
+
+    private void readMechListMIC(ASN1Object mic) {
+        if (!(mic instanceof ASN1OctetString)) {
+            throw new RuntimeException("Expected the responseToken (OCTET_STRING) contents, not: " + mic);
+        }
+        this.mechListMic = ((ASN1OctetString) mic).getValue();
+
+    }
+
+    private void readSupportedMech(ASN1Object supportedMech) {
+        if (!(supportedMech instanceof ASN1ObjectIdentifier)) {
+            throw new RuntimeException("Expected the supportedMech (OBJECT IDENTIFIER) contents, not: " + supportedMech);
+        }
+        this.supportedMech = (ASN1ObjectIdentifier) supportedMech;
+
+    }
+
+    private void readNegResult(ASN1Object object) {
+        if (!(object instanceof ASN1Enumerated)) {
+            throw new RuntimeException("Expected the negResult (ENUMERATED) contents, not: " + supportedMech);
+        }
+        this.negotiationResult = ((ASN1Enumerated) object).getValue();
+    }
+
+    public BigInteger getNegotiationResult() {
+        return negotiationResult;
+    }
+
+    public void setNegotiationResult(BigInteger negotiationResult) {
+        this.negotiationResult = negotiationResult;
+    }
+
+    public ASN1ObjectIdentifier getSupportedMech() {
+        return supportedMech;
+    }
+
+    public void setSupportedMech(ASN1ObjectIdentifier supportedMech) {
+        this.supportedMech = supportedMech;
+    }
+
+    public byte[] getResponseToken() {
+        return responseToken;
+    }
+
+    public void setResponseToken(byte[] responseToken) {
+        this.responseToken = responseToken;
+    }
+
+    public byte[] getMechListMic() {
+        return mechListMic;
+    }
+
+    public void setMechListMic(byte[] mechListMic) {
+        this.mechListMic = mechListMic;
+    }
+}
