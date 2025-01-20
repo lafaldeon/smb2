@@ -1,0 +1,25 @@
+package ru.sber.samba.smb.ntlm;
+
+import lombok.Getter;
+
+@Getter
+public enum NtlmCommand {
+    NEGOTIATE(0x00000001),
+    CHALLENGE(0x00000002),
+    AUTHENTICATE(0x00000003);
+
+    private int code;
+
+    NtlmCommand(int code) {
+        this.code = code;
+    }
+
+    public static NtlmCommand findByCode(int code) {
+        for (NtlmCommand command: values()) {
+            if (command.code == code) {
+                return command;
+            }
+        }
+        throw new IllegalArgumentException("There is no NTLM message type with code " + code);
+    }
+}
