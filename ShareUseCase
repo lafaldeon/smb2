@@ -1,0 +1,21 @@
+package ru.sber.samba.smb.share;
+
+import java.io.InputStream;
+import java.util.List;
+import java.util.Optional;
+
+import ru.sber.samba.smb.base.ObjectInfo;
+import ru.sber.samba.smb.base.ObjectType;
+
+public interface ShareUseCase {
+
+    Optional<ObjectInfo> findObject(String share, String name);
+
+    void createObject(String share, String name, ObjectType type);
+
+    List<ObjectInfo> listDirectory(String share, String directory);
+
+    InputStream fileInputStream(String share, String path);
+
+    void removeFile(String share, String path);
+}
