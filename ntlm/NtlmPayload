@@ -1,0 +1,6 @@
+package ru.sber.samba.smb.ntlm;
+
+import ru.sber.samba.smb.base.Payload;
+
+public interface NtlmPayload extends Payload {
+}
