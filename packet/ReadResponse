@@ -1,0 +1,45 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class ReadResponse implements SmbPayload {
+
+    public static final int lengthValue = 17;
+    public static final long payloadOffset = 16;
+
+    private int length = lengthValue;
+    private byte[] content;
+    private long remaining;
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return ((int) payloadOffset) + (content != null ? content.length : 0);
+    }
+
+    @Override
+    @SneakyThrows
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        output.write(content != null ? SmbHeader.lengthValue + ((int) payloadOffset) : 0);
+        DataHelper.writeZero(output, 1);
+        DataHelper.writeInteger(content != null ? content.length : 0, output);
+        DataHelper.writeInteger(remaining, output);
+        DataHelper.writeZero(output, 4);
+        if (content != null) {
+            output.write(content);
+        }
+    }
+}
