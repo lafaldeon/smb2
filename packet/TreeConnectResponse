@@ -1,0 +1,80 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.EnumSet;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class TreeConnectResponse implements SmbPayload {
+
+    public static final int lengthValue = 16;
+
+    private int length = lengthValue;
+    private ShareType shareType = ShareType.SMB2_SHARE_TYPE_DISK;
+    private EnumSet<Flag> flags = EnumSet.of(Flag.SMB2_SHAREFLAG_NO_CACHING);
+    private EnumSet<Mask> access = EnumSet.of(Mask.GENERIC_ALL);
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return lengthValue;
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        output.write(shareType.getCode());
+        DataHelper.writeZero(output, 1);
+        DataHelper.writeInteger(
+                flags.stream().map(Flag::getCode).reduce(0, Integer::sum, Integer::sum),
+                output
+        );
+        DataHelper.writeZero(output, 4);
+        DataHelper.writeInteger(
+                access.stream().map(Mask::getCode).reduce(0L, Long::sum, Long::sum),
+                output);
+    }
+
+    @Getter
+    public enum ShareType {
+        SMB2_SHARE_TYPE_DISK(0x01),
+        SMB2_SHARE_TYPE_PIPE(0x02),
+        SMB2_SHARE_TYPE_PRINT(0x03);
+
+        private final int code;
+
+        ShareType(int code) {
+            this.code = code;
+        }
+    }
+
+    @Getter
+    public enum Flag {
+        SMB2_SHAREFLAG_NO_CACHING(0x00000030);
+
+        private final int code;
+
+        Flag(int code) {
+            this.code = code;
+        }
+    }
+
+    @Getter
+    public enum Mask {
+        GENERIC_ALL(0x10000000L);
+
+        private final long code;
+
+        Mask(long code) {
+            this.code = code;
+        }
+    }
+}
