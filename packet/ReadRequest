@@ -1,0 +1,49 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class ReadRequest implements SmbPayload {
+
+    public static int lengthValue = 49;
+
+    private int length;
+    private int padding;
+    private long readLength;
+    private long offset;
+    private long persistentFileId;
+    private long volatileFileId;
+    private long minimumCount;
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("Read request size " + length);
+        }
+        padding = input.read();
+        DataHelper.skip(input, 1);
+        readLength = DataHelper.readInteger(input);
+        offset = DataHelper.readLong(input);
+        persistentFileId= DataHelper.readLong(input);
+        volatileFileId = DataHelper.readLong(input);
+        minimumCount = DataHelper.readInteger(input);
+        DataHelper.skip(input, 13);
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yte implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yte implemented!");
+    }
+}
