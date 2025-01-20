@@ -1,0 +1,60 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.ntlm.NegTokenResponse;
+import ru.sber.samba.smb.ntlm.NtlmHeader;
+import ru.sber.samba.smb.ntlm.NtlmPayload;
+import ru.sber.samba.smb.ntlm.SpnegoToken;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class SessionResponse implements SmbPayload {
+
+    public static final int lengthValue = 9;
+    public static final long payloadOffset = 8;
+
+    private int length = lengthValue;
+    private NtlmHeader ntlmHeader = new NtlmHeader();
+    private NtlmPayload ntlmPayload;
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return ((int) payloadOffset) + (ntlmPayload != null ? encryptGss().length : 0);
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        DataHelper.writeZero(output, 2);
+        if (ntlmPayload != null) {
+            byte[] gss = encryptGss();
+            DataHelper.writeShort(SmbHeader.lengthValue + ((int) payloadOffset), output);
+            DataHelper.writeShort(gss.length, output);
+            output.write(gss);
+        } else {
+            DataHelper.writeZero(output, 4);
+        }
+    }
+
+    public byte[] encryptGss() {
+        ByteArrayOutputStream gssContent = new ByteArrayOutputStream();
+        ntlmHeader.write(gssContent);
+        ntlmPayload.write(gssContent);
+        NegTokenResponse negTokenResponse = new NegTokenResponse();
+        negTokenResponse.setSupportedMech(SpnegoToken.SPNEGO);
+        negTokenResponse.setResponseToken(gssContent.toByteArray());
+        return negTokenResponse.write();
+    }
+}
