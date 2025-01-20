@@ -1,0 +1,4 @@
+package ru.sber.samba.smb.tcpip;
+
+public class NoMoreDataException extends RuntimeException {
+}
