@@ -1,0 +1,70 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+
+import lombok.Getter;
+import ru.sber.samba.smb.packet.SmbHeader;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class AuthenticateMessage implements NtlmPayload {
+
+    public static final int payloadOffset = 40;
+
+    private String domain;
+    private String username;
+    private byte[] authentication;
+    private EnumSet<NegotiationFlag> flags;
+
+    @Override
+    public void read(InputStream input) {
+        int lmChallengeLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long lmChallengeOffset = DataHelper.readInteger(input);
+        DataHelper.Slice lmChallenge = new DataHelper.Slice(lmChallengeOffset, lmChallengeLength);
+        int ntChallengeLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long ntChallengeOffset = DataHelper.readInteger(input);
+        DataHelper.Slice ntChallenge = new DataHelper.Slice(ntChallengeOffset, ntChallengeLength);
+        int domainLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long domainOffset = DataHelper.readInteger(input);
+        DataHelper.Slice domain = new DataHelper.Slice(domainOffset, domainLength);
+        int usernameLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long usernameOffset = DataHelper.readInteger(input);
+        DataHelper.Slice username = new DataHelper.Slice(usernameOffset, usernameLength);
+        int workstationLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long workstationOffset = DataHelper.readInteger(input);
+        DataHelper.Slice workstation = new DataHelper.Slice(workstationOffset, workstationLength);
+        int sessionKeyLength = DataHelper.readShort(input);
+        DataHelper.skip(input, 2);
+        long sessionKeyOffset = DataHelper.readInteger(input);
+        DataHelper.Slice sessionKey = new DataHelper.Slice(sessionKeyOffset, sessionKeyLength);
+        flags = NegotiationFlag.unpack(DataHelper.readInteger(input));
+        Map<DataHelper.Slice, byte[]> payloads = DataHelper.readSlices(input, SmbHeader.lengthValue + payloadOffset, List.of(lmChallenge, ntChallenge, domain, username, workstation, sessionKey));
+        authentication = payloads.get(ntChallenge);
+        if (payloads.containsKey(domain)) {
+            this.domain = new String(payloads.get(domain), StandardCharsets.UTF_16LE);
+        }
+        if (payloads.containsKey(username)) {
+            this.username = new String(payloads.get(username), StandardCharsets.UTF_16LE);
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+}
