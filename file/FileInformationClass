@@ -1,0 +1,54 @@
+package ru.sber.samba.smb.file;
+
+import java.util.Arrays;
+
+import lombok.Getter;
+
+@Getter
+public enum FileInformationClass {
+
+    FileDirectoryInformation(0x01),
+    FileFullDirectoryInformation(0x02),
+    FileIdFullDirectoryInformation(0x26),
+    FileBothDirectoryInformation(0x03),
+    FileIdBothDirectoryInformation(0x25),
+    FileNamesInformation(0x0C),
+    FileIdExtdDirectoryInformation(0x3C),
+    FileId64ExtdDirectoryInformation(0x4E),
+    FileId64ExtdBothDirectoryInformation(0x4F),
+    FileIdAllExtdDirectoryInformation(0x50),
+    FileIdAllExtdBothDirectoryInformation(0x51),
+    FileInformationClass_Reserved(0x64),
+    FileAllocationInformation(19),
+    FileBasicInformation(4),
+    FileDispositionInformation(13),
+    FileEndOfFileInformation(20),
+    FileFullEaInformation(15),
+    FileLinkInformation(11),
+    FileModeInformation(16),
+    FilePipeInformation(23),
+    FilePositionInformation(14),
+    FileRenameInformation(10),
+    FileShortNameInformation(40),
+    FileValidDataLengthInformation(39);
+
+    private final int code;
+
+    FileInformationClass(int code) {
+        this.code = code;
+    }
+
+    public static FileInformationClass findByCode(int code) {
+        return Arrays.stream(values())
+                .filter(infoClass -> infoClass.code == code)
+                .findAny()
+                .orElse(null);
+    }
+
+    @Getter
+    public enum Usage {
+        Query,
+        Set,
+        Local
+    }
+}
