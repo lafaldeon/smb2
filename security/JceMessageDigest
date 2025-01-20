@@ -1,0 +1,44 @@
+package ru.sber.samba.smb.ntlm.security;
+
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Provider;
+
+public class JceMessageDigest implements MessageDigest {
+    private java.security.MessageDigest md;
+
+    JceMessageDigest(String algorithm, Provider jceProvider, String providerName) throws SecurityException {
+        try {
+            if (jceProvider != null) {
+                this.md = java.security.MessageDigest.getInstance(algorithm, jceProvider);
+            } else if (providerName != null) {
+                this.md = java.security.MessageDigest.getInstance(algorithm, providerName);
+            } else {
+                this.md = java.security.MessageDigest.getInstance(algorithm);
+            }
+        } catch (NoSuchAlgorithmException e) {
+            if ("MD4".equals(algorithm)) {
+                this.md = new Md4();
+            } else {
+                throw new SecurityException(e);
+            }
+        } catch (NoSuchProviderException e) {
+            throw new SecurityException(e);
+        }
+    }
+
+    @Override
+    public void update(byte[] bytes) {
+        md.update(bytes);
+    }
+
+    @Override
+    public byte[] digest() {
+        return md.digest();
+    }
+
+    @Override
+    public void reset() {
+        md.reset();
+    }
+}
