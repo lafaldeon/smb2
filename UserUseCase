@@ -1,0 +1,10 @@
+package ru.sber.samba.smb.user;
+
+import java.util.Optional;
+
+import ru.sber.samba.smb.base.UserDetails;
+
+public interface UserUseCase {
+
+    Optional<UserDetails> findByDomainAndUsername(String domain, String username);
+}
