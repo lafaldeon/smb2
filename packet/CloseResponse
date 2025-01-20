@@ -1,0 +1,29 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+public class CloseResponse implements SmbPayload {
+
+    public static final int lengthValue = 60;
+
+    private int length = lengthValue;
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return length;
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        DataHelper.writeZero(output, 58);
+    }
+}
