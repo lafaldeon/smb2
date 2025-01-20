@@ -1,0 +1,10 @@
+package ru.sber.samba.smb.ntlm.security;
+
+public interface SecurityProvider {
+
+    MessageDigest getDigest(String name) throws SecurityException;
+
+    Mac getMac(String name) throws SecurityException;
+
+    Cipher getCipher(String name) throws SecurityException;
+}
