@@ -1,0 +1,102 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class SmbHeader {
+
+    public static final byte[] protocolIdValue = {(byte) 0xFE, 'S', 'M', 'B'};
+    public static final int lengthValue = 64;
+
+    private final byte[] protocolId = Arrays.copyOf(protocolIdValue, 4);
+    private int length = lengthValue;
+    private int creditCharge;
+    private NtStatus status = NtStatus.STATUS_SUCCESS;
+    private Command command;
+    private int credit;
+    private EnumSet<Flag> flags = EnumSet.noneOf(Flag.class);
+    private long nextCommand;
+    private long messageId;
+    private long treeId;
+    private long sessionId;
+    private final byte[] signature = new byte[16];
+
+    @SneakyThrows
+    public void read(InputStream input) {
+        for (int i = 0; i < protocolId.length; i++) {
+            protocolId[i] = DataHelper.toByte(input.read());
+        }
+        if (!Arrays.equals(protocolId, protocolIdValue)) {
+            throw new IllegalArgumentException("Wrong protocol id " + protocolId);
+        }
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("SMB v2 header length " + length);
+        }
+        creditCharge = DataHelper.readShort(input);
+        status = NtStatus.findByCode(DataHelper.readInteger(input));
+        command = Command.findByCode(DataHelper.readShort(input));
+        credit = DataHelper.readShort(input);
+        long flags = DataHelper.readInteger(input);
+        List<Flag> flagList = Arrays.stream(Flag.values())
+                .filter(flag -> (flags & flag.getBit()) == 1)
+                .toList();
+        this.flags = flagList.isEmpty() ? EnumSet.noneOf(Flag.class) : EnumSet.copyOf(flagList);
+        nextCommand = DataHelper.readInteger(input);
+        messageId = DataHelper.readLong(input);
+        DataHelper.skip(input, 4);
+        treeId = DataHelper.readInteger(input);
+        sessionId = DataHelper.readLong(input);
+        for (int i = 0; i < signature.length; i++) {
+            signature[i] = DataHelper.toByte(input.read());
+        }
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        output.write(protocolId);
+        DataHelper.writeShort(length, output);
+        DataHelper.writeZero(output, 2);
+        DataHelper.writeInteger(status.getValue(), output);
+        DataHelper.writeShort(command.getCode(), output);
+        DataHelper.writeShort(credit, output);
+        long flags = 0;
+        for (Flag flag : this.flags) {
+            flags += flag.getBit();
+        }
+        DataHelper.writeInteger(flags, output);
+        DataHelper.writeInteger(nextCommand, output);
+        DataHelper.writeLong(messageId, output);
+        DataHelper.writeZero(output, 4);
+        DataHelper.writeInteger(treeId, output);
+        DataHelper.writeLong(sessionId, output);
+        output.write(signature);
+    }
+
+    @Getter
+    public enum Flag {
+        SMB2_FLAGS_SERVER_TO_REDIR(0x00000001),
+        SMB2_FLAGS_ASYNC_COMMAND(0x00000002),
+        SMB2_FLAGS_RELATED_OPERATIONS(0x00000004),
+        SMB2_FLAGS_SIGNED(0x00000008),
+        SMB2_FLAGS_PRIORITY_MASK(0x00000070),
+        SMB2_FLAGS_DFS_OPERATIONS(0x10000000),
+        SMB2_FLAGS_REPLAY_OPERATION(0x20000000);
+
+        private final long bit;
+
+        Flag(long bit) {
+            this.bit = bit;
+        }
+    }
+}
