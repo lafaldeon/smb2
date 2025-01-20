@@ -1,0 +1,38 @@
+package ru.sber.samba.smb.tcpip;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+
+@Getter
+@Setter
+public class TransportPacketHeader {
+
+    public static final int headerLength = 4;
+    public static final int zeroValue = 0;
+
+    private int packetlength;
+
+    @SneakyThrows
+    public void read(InputStream input) {
+        int zero = input.read();
+        if (zero == -1) {
+            throw new NoMoreDataException();
+        }
+        if (zero != zeroValue) {
+            throw new IllegalArgumentException("Zero field value is " + zero);
+        }
+        packetlength = ((input.read() & 0xFF) << 16) + ((input.read() & 0xFF) << 8) + (input.read() & 0xFF);
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        output.write(zeroValue);
+        output.write((packetlength >> 16) & 0xFF);
+        output.write((packetlength >> 8) & 0xFF);
+        output.write(packetlength & 0xFF);
+    }
+}
