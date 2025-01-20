@@ -1,0 +1,79 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import lombok.Getter;
+import lombok.Setter;
+import ru.sber.samba.smb.file.FileIdBothDirectoryInformation;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class QueryDirectoryResponse implements SmbPayload {
+
+    public final static int lengthValue = 9;
+    public final static long payloadOffset = 8;
+
+    private int length = lengthValue;
+    private List<FileIdBothDirectoryInformation> fileInfoList = new ArrayList<>();
+
+    @Override
+    public void read(InputStream input) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public int getSize() {
+        return ((int) payloadOffset) + countFileListLength();
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        DataHelper.writeShort(length, output);
+        int bufferLength = countFileListLength();
+        int bufferOffset = bufferLength > 0 ? SmbHeader.lengthValue + ((int) payloadOffset) : 0;
+        DataHelper.writeShort(bufferOffset, output);
+        DataHelper.writeInteger(bufferLength, output);
+        int element = 1;
+        for (FileIdBothDirectoryInformation fileInfo : fileInfoList) {
+            if (element < fileInfoList.size()) {
+                int fileInfoLength = fileInfo.getSize();
+                int nextFileInfoOffset = alignElementLength(fileInfoLength);
+                int remaining = nextFileInfoOffset - fileInfoLength;
+                DataHelper.writeInteger(nextFileInfoOffset, output);
+                fileInfo.setFileIndex(element);
+                fileInfo.write(output);
+                if (remaining > 0) {
+                    DataHelper.writeZero(output, remaining);
+                }
+            } else {
+                DataHelper.writeZero(output, 4);
+                fileInfo.setFileIndex(element);
+                fileInfo.write(output);
+            }
+            element++;
+        }
+    }
+
+    public int countFileListLength() {
+        int length = 0;
+        int element = 1;
+        for (FileIdBothDirectoryInformation fileInfo : fileInfoList) {
+            if (element < fileInfoList.size()) {
+                length += alignElementLength(fileInfo.getSize());
+            } else {
+                length += fileInfo.getSize();
+            }
+            element++;
+        }
+        return length;
+    }
+
+    public int alignElementLength(int length) {
+        int remaining = length % 8;
+        return remaining == 0 ? length : length + (8 - remaining);
+    }
+}
