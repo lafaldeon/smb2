@@ -1,0 +1,86 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.file.FileInformationClass;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class QueryDirectoryRequest implements SmbPayload {
+
+    public final static int lengthValue = 33;
+    public final static long payloadOffset = 32;
+
+    private int length = lengthValue;
+    private FileInformationClass fileInformationClass;
+    private EnumSet<Flag> flags = EnumSet.noneOf(Flag.class);
+    private long fileIndex;
+    private long persistentFileId;
+    private long volatileFileId;
+    private String fileNamePattern;
+    private long outputBufferLength;
+
+    @Override
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("Query directory request size " + length);
+        }
+        int fileInformationClassCode = input.read();
+        fileInformationClass = FileInformationClass.findByCode(fileInformationClassCode);
+        int flagSum = input.read();
+        flags = Flag.findBySum(flagSum);
+        fileIndex = DataHelper.readInteger(input);
+        persistentFileId = DataHelper.readLong(input);
+        volatileFileId = DataHelper.readLong(input);
+        long fileNamePatternOffset = DataHelper.readShort(input);
+        int fileNamePatternLength = DataHelper.readShort(input);
+        DataHelper.Slice fileNamePattern = new DataHelper.Slice(fileNamePatternOffset, fileNamePatternLength);
+        outputBufferLength = DataHelper.readInteger(input);
+        Map<DataHelper.Slice, byte[]> payloads = DataHelper.readSlices(input, SmbHeader.lengthValue + payloadOffset, List.of(fileNamePattern));
+        if (payloads.containsKey(fileNamePattern)) {
+            this.fileNamePattern = new String(payloads.get(fileNamePattern), StandardCharsets.UTF_16LE);
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Getter
+    public enum Flag {
+        SMB2_RESTART_SCANS(0x01),
+        SMB2_RETURN_SINGLE_ENTRY(0x02),
+        SMB2_INDEX_SPECIFIED(0x04),
+        SMB2_REOPEN(0x10);
+
+        private final int code;
+
+        Flag(int code) {
+            this.code = code;
+        }
+
+        public static EnumSet<Flag> findBySum(int sum) {
+            List<Flag> flags = Arrays.stream(values())
+                    .filter(flag -> (flag.code & sum) == 1)
+                    .collect(Collectors.toList());
+            return flags.isEmpty() ? EnumSet.noneOf(Flag.class) : EnumSet.copyOf(flags);
+        }
+    }
+}
