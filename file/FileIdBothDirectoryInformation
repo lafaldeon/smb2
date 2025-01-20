@@ -1,0 +1,67 @@
+package ru.sber.samba.smb.file;
+
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.EnumSet;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+@Setter
+public class FileIdBothDirectoryInformation {
+
+    private int fileIndex;
+    private Instant creationTime = Instant.now();
+    private Instant lastAccessTime = Instant.now();
+    private Instant lastWriteTime = Instant.now();
+    private Instant changeTime = Instant.now();
+    private long endOfFileOffset;
+    private long allocationSize;
+    private EnumSet<FileAttribute> fileAttributes;
+    private int extendedAttributesLength;
+    private String shortName;
+    private long filePersistentId;
+    private String fileName;
+
+    public int getSize() {
+        return 104 + (fileName != null ? fileName.getBytes(StandardCharsets.UTF_16LE).length : 0);
+    }
+
+    @SneakyThrows
+    public void write(OutputStream output) {
+        DataHelper.writeInteger(fileIndex, output);
+        DataHelper.writeLong(DataHelper.toNtTime(creationTime), output);
+        DataHelper.writeLong(DataHelper.toNtTime(lastAccessTime), output);
+        DataHelper.writeLong(DataHelper.toNtTime(lastWriteTime), output);
+        DataHelper.writeLong(DataHelper.toNtTime(changeTime), output);
+        DataHelper.writeLong(endOfFileOffset, output);
+        DataHelper.writeLong(allocationSize, output);
+        DataHelper.writeInteger(
+                fileAttributes.stream().reduce(0L, (sum, attribute) -> sum + attribute.getCode(), Long::sum),
+                output
+        );
+        byte[] fileName = this.fileName != null ? this.fileName.getBytes(StandardCharsets.UTF_16LE) : new byte[0];
+        DataHelper.writeInteger(fileName.length, output);
+        DataHelper.writeInteger(extendedAttributesLength, output);
+        byte[] shortName = this.shortName != null ? this.shortName.getBytes(StandardCharsets.UTF_16LE) : new byte[0];
+        output.write(shortName.length);
+        DataHelper.writeZero(output, 1);
+        int shortNamePaddingLength = 24;
+        if (shortName.length > 0) {
+            output.write(shortName);
+            shortNamePaddingLength -= shortName.length;
+        }
+        if (shortNamePaddingLength > 0) {
+            DataHelper.writeZero(output, shortNamePaddingLength);
+        }
+        DataHelper.writeZero(output, 2);
+        DataHelper.writeLong(filePersistentId, output);
+        if (fileName.length > 0) {
+            output.write(fileName);
+        }
+    }
+}
