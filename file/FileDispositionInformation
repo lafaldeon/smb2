@@ -1,0 +1,18 @@
+package ru.sber.samba.smb.file;
+
+import java.io.InputStream;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+
+@Getter
+public class FileDispositionInformation {
+
+    private boolean deletePending;
+
+    @SneakyThrows
+    public void read(InputStream input) {
+        int deletePending = input.read();
+        this.deletePending = deletePending == 1;
+    }
+}
