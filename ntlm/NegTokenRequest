@@ -1,0 +1,133 @@
+package ru.sber.samba.smb.ntlm;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.hierynomus.asn1.ASN1InputStream;
+import com.hierynomus.asn1.encodingrules.der.DERDecoder;
+import com.hierynomus.asn1.types.ASN1Object;
+import com.hierynomus.asn1.types.ASN1Tag;
+import com.hierynomus.asn1.types.ASN1TagClass;
+import com.hierynomus.asn1.types.constructed.ASN1Sequence;
+import com.hierynomus.asn1.types.constructed.ASN1TaggedObject;
+import com.hierynomus.asn1.types.primitive.ASN1ObjectIdentifier;
+import com.hierynomus.asn1.types.string.ASN1OctetString;
+
+public class NegTokenRequest extends SpnegoToken {
+
+    static final String ADS_IGNORE_PRINCIPAL = "not_defined_in_RFC4178@please_ignore";
+
+    private List<ASN1ObjectIdentifier> mechTypes = new ArrayList<>();
+    protected byte[] mechToken;
+
+    public NegTokenRequest() {
+        super(0x0, "NegTokenInit");
+    }
+
+    public byte[] write() {
+        try {
+            List<ASN1Object> negTokenInit = new ArrayList<>();
+//            ASN1EncodableVector negTokenInit = new ASN1EncodableVector();
+            addMechTypeList(negTokenInit);
+            addMechToken(negTokenInit);
+
+            return writeGss(new ASN1Sequence(negTokenInit));
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to write NegTokenInit", e);
+        }
+    }
+
+    public NegTokenRequest read(InputStream input) {
+        try (ASN1InputStream is = new ASN1InputStream(new DERDecoder(), input)) {
+            ASN1TaggedObject applicationSpecific = is.readObject();
+            if (applicationSpecific.getTag().getAsn1TagClass() != ASN1TagClass.APPLICATION) {
+                throw new RuntimeException("Incorrect GSS-API ASN.1 token received, expected to find an [APPLICATION 0], not: " + applicationSpecific);
+            }
+            ASN1Sequence implicitSequence = applicationSpecific.getObject(ASN1Tag.SEQUENCE);
+            ASN1Object spnegoOid = implicitSequence.get(0);
+            if (!(spnegoOid instanceof ASN1ObjectIdentifier)) {
+                throw new RuntimeException("Expected to find the SPNEGO OID (" + SPNEGO + "), not: " + spnegoOid);
+            }
+
+            parseSpnegoToken(implicitSequence.get(1));
+        } catch (IOException ioe) {
+            throw new RuntimeException("Could not read NegTokenInit from buffer", ioe);
+        }
+        return this;
+    }
+
+    @Override
+    protected void parseTagged(ASN1TaggedObject asn1TaggedObject) {
+        if (asn1TaggedObject.getObject().toString().contains(ADS_IGNORE_PRINCIPAL)) {
+            // Ignore
+            return;
+        }
+        switch (asn1TaggedObject.getTagNo()) {
+            case 0:
+                readMechTypeList(asn1TaggedObject.getObject());
+                break;
+            case 1:
+                // Ignore reqFlags for now...
+                break;
+            case 2:
+                readMechToken(asn1TaggedObject.getObject());
+                break;
+            case 3:
+                // Ignore mechListMIC for now...
+                break;
+            default:
+                throw new RuntimeException("Unknown Object Tag " + asn1TaggedObject.getTagNo() + " encountered.");
+        }
+    }
+
+    void readMechToken(ASN1Object mechToken) {
+        if (!(mechToken instanceof ASN1OctetString)) {
+            throw new RuntimeException("Expected the MechToken (OCTET_STRING) contents, not: " + mechToken);
+        }
+        this.mechToken = ((ASN1OctetString) mechToken).getValue();
+    }
+
+    void readMechTypeList(ASN1Object sequence) {
+        if (!(sequence instanceof ASN1Sequence)) {
+            throw new RuntimeException("Expected the MechTypeList (SEQUENCE) contents, not: " + sequence);
+        }
+        for (ASN1Object mechType : (ASN1Sequence) sequence) {
+            if (!(mechType instanceof ASN1ObjectIdentifier)) {
+                throw new RuntimeException("Expected a MechType (OBJECT IDENTIFIER) as contents of the MechTypeList, not: " + mechType);
+            }
+            mechTypes.add((ASN1ObjectIdentifier) mechType);
+        }
+    }
+
+    private void addMechToken(List<ASN1Object> negTokenInit) {
+        if (mechToken != null && mechToken.length > 0) {
+            ASN1TaggedObject token = new ASN1TaggedObject(ASN1Tag.contextSpecific(2).constructed(), new ASN1OctetString(mechToken), true);
+            negTokenInit.add(token);
+        }
+    }
+
+    private void addMechTypeList(List<ASN1Object> negTokenInit) {
+        if (mechTypes.size() > 0) {
+            List<ASN1Object> supportedMechVector = new ArrayList<ASN1Object>(mechTypes);
+            negTokenInit.add(new ASN1TaggedObject(ASN1Tag.contextSpecific(0).constructed(), new ASN1Sequence(supportedMechVector), true));
+        }
+    }
+
+    public void addSupportedMech(ASN1ObjectIdentifier oid) {
+        this.mechTypes.add(oid);
+    }
+
+    public void setMechToken(byte[] mechToken) {
+        this.mechToken = mechToken;
+    }
+
+    public List<ASN1ObjectIdentifier> getSupportedMechTypes() {
+        return mechTypes;
+    }
+
+    public byte[] getMechToken() {
+        return mechToken;
+    }
+}
