@@ -1,0 +1,83 @@
+package ru.sber.samba.smb.packet;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Arrays;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
+import ru.sber.samba.smb.file.FileDispositionInformation;
+import ru.sber.samba.smb.file.FileInformationClass;
+import ru.sber.samba.smb.file.FileSystemInformationClass;
+import ru.sber.samba.smb.tcpip.DataHelper;
+
+@Getter
+public class SetInfoRequest implements SmbPayload {
+
+    public static final int lengthValue = 33;
+
+    private int length = lengthValue;
+    private InfoType infoType;
+    private FileInformationClass fileInformationClass;
+    private FileSystemInformationClass fileSystemInformationClass;
+    private long persistentFileId;
+    private long volatileFileId;
+    private Object info;
+
+    @SneakyThrows
+    public void read(InputStream input) {
+        length = DataHelper.readShort(input);
+        if (length != lengthValue) {
+            throw new IllegalArgumentException("SetInfo request size " + length);
+        }
+        infoType = InfoType.findByCode(input.read());
+        int infoClass = input.read();
+        switch (infoType) {
+            case SMB2_0_INFO_FILE -> fileInformationClass = FileInformationClass.findByCode(infoClass);
+            case SMB2_0_INFO_FILESYSTEM -> fileSystemInformationClass = FileSystemInformationClass.findByCode(infoClass);
+        }
+        long infoSize = DataHelper.readInteger(input);
+        int infoOffset = DataHelper.readShort(input);
+        DataHelper.skip(input, 6);
+        persistentFileId = DataHelper.readLong(input);
+        volatileFileId = DataHelper.readLong(input);
+        if (infoSize > 0) {
+            if (fileInformationClass == FileInformationClass.FileDispositionInformation) {
+                var dispositionInformation = new FileDispositionInformation();
+                dispositionInformation.read(input);
+                info = dispositionInformation;
+            }
+        }
+    }
+
+    @Override
+    public int getSize() {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Override
+    public void write(OutputStream output) {
+        throw new UnsupportedOperationException("Not yet implemented!");
+    }
+
+    @Getter
+    public enum InfoType {
+        SMB2_0_INFO_FILE(0x01),
+        SMB2_0_INFO_FILESYSTEM(0x02),
+        SMB2_0_INFO_SECURITY(0x03),
+        SMB2_0_INFO_QUOTA(0x04);
+
+        private final int code;
+
+        InfoType(int code) {
+            this.code = code;
+        }
+
+        public static InfoType findByCode(int code) {
+            return Arrays.stream(values())
+                    .filter(type -> type.code == code)
+                    .findAny()
+                    .orElse(null);
+        }
+    }
+}
