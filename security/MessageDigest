@@ -1,0 +1,9 @@
+package ru.sber.samba.smb.ntlm.security;
+
+public interface MessageDigest {
+    void update(byte[] bytes);
+
+    byte[] digest();
+
+    void reset();
+}
