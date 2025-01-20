@@ -1,0 +1,12 @@
+package ru.sber.samba.smb.ntlm;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class NtlmMessage {
+
+    private NtlmHeader header;
+    private NtlmPayload ntlmPayload;
+}
